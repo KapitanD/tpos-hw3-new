@@ -1,0 +1,82 @@
+---
+- name: Uptime server
+  hosts: service
+  vars:
+    config_src: ./nginx.j2
+    config_dest: /etc/nginx/sites-available/static_site.conf
+    service_state_temp_src: ./service_state
+    service_state_temp_dest: /opt/service_state_template
+    service_state_dest: /opt/service_state
+  tasks:
+  - name: Copy template file
+    become: yes
+    copy:
+      src: "{{ service_state_temp_src }}"
+      dest: "{{ service_state_temp_dest }}"
+      mode: 0777
+    register: template
+
+  - name: Copy template file into main service_state when template is changed
+    when: template.changed
+    become: yes
+    shell: cp "{{ service_state_temp_dest }}" "{{ service_state_dest }}"
+    notify: Nginx restart
+    register: service_state_ready
+
+  - name: Run handlers immediatly (for correct work of wait for)
+    meta: flush_handlers
+
+  - name: Install propper nginx version
+    become: yes
+    apt: name=nginx state=latest
+    register: nginx_installed
+    notify: Nginx start
+
+  - name: Copy nginx config file
+    when: nginx_installed is succeeded
+    become: yes
+    template:
+      src: "{{ config_src }}"
+      dest:  "{{ config_dest }}"
+    register: config_cp
+    notify: Nginx reload
+
+  - name: Make symlink
+    when: config_cp is succeeded
+    file:
+      src: "{{ config_dest }}"
+      dest: /etc/nginx/sites-enabled/default
+      state: link
+    become: yes
+    register: symlink
+
+  - name: Add sed command to cron
+    when: service_state_ready is succeeded
+    become: yes
+    cron:
+      name: "change minutes in service_state every minute"
+      job: 'sudo sed -i "s/is .*$/is $(($(ps -o etimes= -p $(cat /var/run/nginx.pid)) / 60)) minutes/" "{{ service_state_dest }}"'
+
+  - name: Check for service_state is changing
+    when: template.changed
+    shell: diff "{{ service_state_temp_dest }}" "{{ service_state_dest }}"
+    register: diff_out
+    until: diff_out.stdout != ""
+    retries: 10
+    delay: 10
+    failed_when: diff_out.attempts == 10
+
+  handlers:
+    - name: Nginx start
+      become: yes
+      service: name=nginx state=started
+
+    - name: Nginx restart
+      become: yes
+      service: name=nginx state=restarted
+
+    - name: Nginx reload
+      become: yes
+      service: name=nginx state=reloaded
+
+  
