@@ -7,15 +7,15 @@
 ## Userguide
 IP виртуалки: 192.168.10.20
 Для запуска виртуальной машины:
-```
+```bash
 vagrant up
 ```
 Для запуска скрипта:
-```
+```bash
 ansible-playbook -i ./hosts tasks.yml
 ```
 Проверка работы:
-```
+```bash
 curl 192.168.10.20/service_data
 ```
 должен отдать содержимое ```service_state```, что то вроде:
